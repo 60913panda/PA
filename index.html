@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互動式方格圖畫紙</title>
+    <!-- 引入 Tailwind CSS 以快速進行樣式設計 --><script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* --- 整體頁面樣式 --- */
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            background-color: #f4f4f5; /* 柔和的背景色 */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 1rem;
+            box-sizing: border-box;
+            overflow: hidden; /* 防止滾動條出現 */
+            overscroll-behavior: none;
+        }
+
+        /* --- 標題樣式 --- */
+        h1 {
+            color: #18181b;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        
+        /* --- 工具欄容器 --- */
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background-color: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* --- 分隔線 --- */
+        .divider {
+            width: 1px;
+            height: 24px;
+            background-color: #e4e4e7;
+            margin: 0 0.5rem;
+        }
+
+        /* --- 顏色樣本 --- */
+        .color-swatch {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+        .color-swatch:hover {
+            transform: scale(1.1);
+        }
+        .color-swatch.active {
+            border-color: #3b82f6; /* 藍色邊框表示選中 */
+            transform: scale(1.15);
+        }
+
+        /* --- 工具按鈕 --- */
+        .tool-btn {
+             width: 40px;
+             height: 40px;
+             border: 2px solid #d4d4d8;
+             border-radius: 0.375rem;
+             display: flex;
+             justify-content: center;
+             align-items: center;
+             cursor: pointer;
+             transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+        }
+        .tool-btn:hover:not(:disabled) {
+            background-color: #e4e4e7;
+        }
+        .tool-btn.active {
+            background-color: #3b82f6;
+            border-color: #3b82f6;
+            color: white;
+        }
+        .tool-btn:disabled {
+            cursor: not-allowed;
+            background-color: #f4f4f5;
+            color: #a1a1aa;
+            border-color: #e4e4e7;
+        }
+
+
+        /* --- 畫布樣式 --- */
+        #drawing-canvas {
+            background-color: #ffffff;
+            border: 1px solid #a1a1aa;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            border-radius: 8px;
+            touch-action: none;
+        }
+
+        /* --- 浮動圖片預覽容器 --- */
+        #image-preview-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            display: none; /* 預設隱藏 */
+            flex-direction: column; /* 讓按鈕在圖片下方 */
+        }
+        #image-preview-container.active {
+            display: flex; /* 顯示容器 */
+        }
+
+        #image-preview-wrapper {
+            position: relative;
+            background-color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden; /* 確保圖片不超出邊界 */
+            cursor: grab;
+            touch-action: none; /* 禁用觸控的預設行為 */
+            width: 80vmin; /* 限制最大預覽尺寸 */
+            height: 80vmin;
+            max-width: 600px;
+            max-height: 600px;
+        }
+
+        #image-preview-wrapper.panning {
+            cursor: grabbing;
+        }
+
+        #image-preview {
+            display: block; /* 確保圖片正確顯示 */
+            user-select: none; /* 防止圖片被選中 */
+            pointer-events: none; /* 讓事件穿透到父元素 */
+            position: absolute; /* 讓圖片可以自由移動 */
+            image-rendering: optimizeSpeed; /* 對於縮放可能有用 */
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: optimize-contrast;
+            -ms-interpolation-mode: nearest-neighbor;
+        }
+
+        .preview-controls {
+            margin-top: 1rem;
+            display: flex;
+            gap: 1rem;
+        }
+        .preview-controls button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.2s;
+        }
+        .preview-controls button:hover {
+            transform: translateY(-2px);
+        }
+        #cancel-upload-btn {
+            background-color: #ef4444;
+            color: white;
+        }
+        #cancel-upload-btn:hover {
+            background-color: #dc2626;
+        }
+        #confirm-pixelate-btn {
+            background-color: #22c55e;
+            color: white;
+        }
+        #confirm-pixelate-btn:hover {
+            background-color: #16a34a;
+        }
+
+    </style>
+    <!-- 引入 Google Fonts --><link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+TC:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <h1>互動式方格圖畫紙</h1>
+
+    <!-- 工具欄 --><div id="toolbar" class="toolbar">
+        <!-- 顏色選擇 --><div id="color-palette" class="flex gap-3 items-center flex-wrap justify-center">
+            <div class="color-swatch active" style="background-color: #000000;" data-color="#000000"></div>
+            <div class="color-swatch" style="background-color: #ef4444;" data-color="#ef4444"></div>
+            <div class="color-swatch" style="background-color: #f97316;" data-color="#f97316"></div>
+            <div class="color-swatch" style="background-color: #eab308;" data-color="#eab308"></div>
+            <div class="color-swatch" style="background-color: #22c55e;" data-color="#22c55e"></div>
+            <div class="color-swatch" style="background-color: #3b82f6;" data-color="#3b82f6"></div>
+            <div class="color-swatch" style="background-color: #8b5cf6;" data-color="#8b5cf6"></div>
+            <div class="color-swatch" style="background-color: #ec4899;" data-color="#ec4899"></div>
+            <div class="color-swatch" style="background-color: #78716c;" data-color="#78716c"></div>
+            <div class="color-swatch" style="background-color: #ffffff; border: 1px solid #d4d4d8" data-color="#ffffff"></div>
+             <!-- 色環選擇器 --><label for="color-picker" id="color-picker-label" class="color-swatch relative" title="自訂顏色" style="background-image: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);">
+                <input type="color" id="color-picker" value="#000000" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
+            </label>
+        </div>
+        <div class="divider"></div>
+        <!-- 工具按鈕 --><div id="tool-selector" class="flex gap-3 items-center">
+            <button id="move-tool" class="tool-btn" title="移動">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+            </button>
+            <button id="pen-tool" class="tool-btn active" title="畫筆">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+            </button>
+            <button id="eraser-tool" class="tool-btn" title="橡皮擦">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21H7Z"/><path d="M22 21H7"/><path d="m5 12 5 5"/></svg>
+            </button>
+            <button id="bucket-tool" class="tool-btn" title="油漆桶">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12A10 10 0 0 0 12 2v10l-4.5 4.5A10 10 0 0 0 22 12Z"/><path d="m2 12 5 5m0 0 5-5m-5 5v5"/></svg>
+            </button>
+        </div>
+        <div class="divider"></div>
+        <div class="flex gap-3 items-center">
+             <button id="image-tool" class="tool-btn" title="圖片轉像素">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+            </button>
+            <button id="clear-btn" class="tool-btn" title="清除全部">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            </button>
+        </div>
+        <div class="divider"></div>
+         <div class="flex gap-3 items-center">
+            <button id="undo-btn" class="tool-btn" title="復原">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+            </button>
+            <button id="redo-btn" class="tool-btn" title="重做">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 0 9 9 9 9 0 0 0 6-2.3L21 13"/></svg>
+            </button>
+        </div>
+    </div>
+    
+    <!-- 畫布 --><canvas id="drawing-canvas"></canvas>
+    <!-- 隱藏的檔案上傳輸入框 --><input type="file" id="image-upload" accept="image/*" class="hidden">
+
+    <!-- 圖片預覽與編輯浮動容器 --><div id="image-preview-container" class="active"> <!-- active for testing, remove for prod --><div id="image-preview-wrapper">
+            <img id="image-preview" src="" alt="預覽圖片">
+        </div>
+        <div class="preview-controls">
+            <button id="cancel-upload-btn">取消</button>
+            <button id="confirm-pixelate-btn">完成，轉換成像素</button>
+        </div>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('drawing-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            const colorPalette = document.getElementById('color-palette');
+            const penTool = document.getElementById('pen-tool');
+            const eraserTool = document.getElementById('eraser-tool');
+            const bucketTool = document.getElementById('bucket-tool');
+            const moveTool = document.getElementById('move-tool');
+            const clearBtn = document.getElementById('clear-btn');
+            const imageTool = document.getElementById('image-tool');
+            const imageUpload = document.getElementById('image-upload');
+            const colorPicker = document.getElementById('color-picker');
+            const colorPickerLabel = document.getElementById('color-picker-label');
+            const undoBtn = document.getElementById('undo-btn');
+            const redoBtn = document.getElementById('redo-btn');
+
+            const imagePreviewContainer = document.getElementById('image-preview-container');
+            const imagePreviewWrapper = document.getElementById('image-preview-wrapper');
+            const imagePreview = document.getElementById('image-preview');
+            const cancelUploadBtn = document.getElementById('cancel-upload-btn');
+            const confirmPixelateBtn = document.getElementById('confirm-pixelate-btn');
+
+            const GRID_COUNT = 20;
+            let gridState = Array(GRID_COUNT).fill(null).map(() => Array(GRID_COUNT).fill(null));
+            
+            let isDrawing = false;
+            let isPanning = false; // 用於畫布平移
+            let lastPanPos = { x: 0, y: 0 };
+
+            let currentColor = '#000000';
+            let currentTool = 'pen'; // 'pen', 'eraser', 'bucket', 'move'
+
+            let view = { scale: 1, offsetX: 0, offsetY: 0 }; // 畫布的縮放和平移
+
+            let history = [];
+            let historyIndex = -1;
+
+            // 圖片預覽模式專用變數
+            let isPreviewMode = false;
+            let previewImage = new Image();
+            let previewTransform = { scale: 1, offsetX: 0, offsetY: 0 };
+            let isPreviewPanning = false;
+            let lastPreviewPanPos = { x: 0, y: 0 };
+
+
+            // --- 初始化與調整大小 ---
+            function resizeAndSetupCanvas() {
+                const size = Math.min(window.innerWidth * 0.9, window.innerHeight * 0.7);
+                const dpr = window.devicePixelRatio || 1;
+                canvas.style.width = `${size}px`;
+                canvas.style.height = `${size}px`;
+                canvas.width = size * dpr;
+                canvas.height = size * dpr;
+                ctx.scale(dpr, dpr);
+                redrawAll();
+            }
+
+            // --- 繪圖函式 ---
+            function redrawAll() {
+                ctx.save();
+                ctx.fillStyle = '#f4f4f5'; // 背景色
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.translate(view.offsetX, view.offsetY);
+                ctx.scale(view.scale, view.scale);
+                
+                const canvasSize = canvas.getBoundingClientRect().width;
+                const gridSize = GRID_COUNT * (canvasSize / GRID_COUNT); // 總網格尺寸，實際繪製區域
+
+                // 畫白色背景
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0,0, gridSize, gridSize);
+
+                drawFromState(gridSize);
+                drawGrid(gridSize);
+                ctx.restore();
+            }
+            
+            function drawGrid(gridSize) {
+                const cellSize = gridSize / GRID_COUNT;
+                ctx.strokeStyle = '#d4d4d8';
+                ctx.lineWidth = 1 / view.scale; // 確保網格線在縮放時粗細不變
+                
+                for (let i = 0; i <= GRID_COUNT; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(i * cellSize, 0);
+                    ctx.lineTo(i * cellSize, gridSize);
+                    ctx.stroke();
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(0, i * cellSize);
+                    ctx.lineTo(gridSize, i * cellSize);
+                    ctx.stroke();
+                }
+            }
+            
+            function drawFromState(gridSize) {
+                const cellSize = gridSize / GRID_COUNT;
+                for (let row = 0; row < GRID_COUNT; row++) {
+                    for (let col = 0; col < GRID_COUNT; col++) {
+                        if (gridState[row][col]) {
+                            ctx.fillStyle = gridState[row][col];
+                            ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+                        }
+                    }
+                }
+            }
+            
+            // --- 歷史紀錄管理 ---
+            function saveState() {
+                history = history.slice(0, historyIndex + 1);
+                history.push(JSON.parse(JSON.stringify(gridState)));
+                historyIndex++;
+                updateUndoRedoButtons();
+            }
+
+            function undo() {
+                if (historyIndex > 0) {
+                    historyIndex--;
+                    gridState = JSON.parse(JSON.stringify(history[historyIndex]));
+                    redrawAll();
+                    updateUndoRedoButtons();
+                }
+            }
+
+            function redo() {
+                if (historyIndex < history.length - 1) {
+                    historyIndex++;
+                    gridState = JSON.parse(JSON.stringify(history[historyIndex]));
+                    redrawAll();
+                    updateUndoRedoButtons();
+                }
+            }
+            
+            function updateUndoRedoButtons() {
+                undoBtn.disabled = historyIndex <= 0;
+                redoBtn.disabled = historyIndex >= history.length - 1;
+            }
+
+            // --- 畫布事件處理 ---
+            function getCanvasCoords(evt) {
+                const rect = canvas.getBoundingClientRect();
+                const clientX = evt.clientX ?? evt.touches?.[0]?.clientX;
+                const clientY = evt.clientY ?? evt.touches?.[0]?.clientY;
+                return { x: clientX - rect.left, y: clientY - rect.top };
+            }
+
+            function getGridCoords(canvasCoords) {
+                const gridSize = canvas.getBoundingClientRect().width;
+                const cellSize = gridSize / GRID_COUNT;
+                const worldX = (canvasCoords.x - view.offsetX) / view.scale;
+                const worldY = (canvasCoords.y - view.offsetY) / view.scale;
+                const col = Math.floor(worldX / cellSize);
+                const row = Math.floor(worldY / cellSize);
+                return { row, col };
+            }
+
+            function handleDraw(e) {
+                if (!isDrawing) return;
+                e.preventDefault();
+                const { row, col } = getGridCoords(getCanvasCoords(e));
+
+                if (col >= 0 && col < GRID_COUNT && row >= 0 && row < GRID_COUNT) {
+                    const newColor = currentTool === 'pen' ? currentColor : null;
+                    if (gridState[row][col] !== newColor) {
+                        gridState[row][col] = newColor;
+                        redrawAll();
+                    }
+                }
+            }
+            
+            function handlePan(e) {
+                 if (!isPanning) return;
+                 e.preventDefault();
+                 const pos = getCanvasCoords(e);
+                 view.offsetX += pos.x - lastPanPos.x;
+                 view.offsetY += pos.y - lastPanPos.y;
+                 lastPanPos = pos;
+                 redrawAll();
+            }
+
+            function startAction(e) {
+                e.preventDefault();
+                if (currentTool === 'move') {
+                    isPanning = true;
+                    lastPanPos = getCanvasCoords(e);
+                    canvas.style.cursor = 'grabbing';
+                } else if (currentTool === 'bucket') {
+                    handleFill(e);
+                } else { // pen, eraser
+                    isDrawing = true;
+                    handleDraw(e);
+                }
+            }
+
+            function stopAction() {
+                if (isDrawing) {
+                    saveState();
+                }
+                isDrawing = false;
+                isPanning = false;
+                updateCursor();
+            }
+
+            function handleFill(e) {
+                const { row, col } = getGridCoords(getCanvasCoords(e));
+                if (col >= 0 && col < GRID_COUNT && row >= 0 && row < GRID_COUNT) {
+                    const targetColor = gridState[row][col] || null; // 處理 null 或 undefined
+                    const replacementColor = currentColor;
+
+                    if (targetColor !== replacementColor) {
+                        floodFill(row, col, targetColor, replacementColor);
+                        redrawAll();
+                        saveState();
+                    }
+                }
+            }
+
+            function handleZoom(e) {
+                e.preventDefault();
+                const pos = getCanvasCoords(e);
+                const zoomFactor = 1.1;
+                const delta = e.deltaY > 0 ? 1 / zoomFactor : zoomFactor;
+                const oldScale = view.scale;
+                
+                view.scale = Math.max(0.5, Math.min(view.scale * delta, 10)); // 限制縮放範圍
+
+                view.offsetX = pos.x - (pos.x - view.offsetX) * (view.scale / oldScale);
+                view.offsetY = pos.y - (pos.y - view.offsetY) * (view.scale / oldScale);
+
+                redrawAll();
+            }
+
+            // --- 工具欄事件 ---
+            function selectTool(toolName) {
+                currentTool = toolName;
+                document.querySelectorAll('#tool-selector .tool-btn.active').forEach(b => b.classList.remove('active'));
+                document.getElementById(`${toolName}-tool`).classList.add('active');
+                updateCursor();
+            }
+            
+            function updateCursor() {
+                if (currentTool === 'move') canvas.style.cursor = 'grab';
+                else if(currentTool === 'bucket') canvas.style.cursor = 'copy';
+                else canvas.style.cursor = 'crosshair';
+            }
+
+            moveTool.addEventListener('click', () => selectTool('move'));
+            penTool.addEventListener('click', () => selectTool('pen'));
+            eraserTool.addEventListener('click', () => selectTool('eraser'));
+            bucketTool.addEventListener('click', () => selectTool('bucket'));
+
+            colorPalette.addEventListener('click', (e) => {
+                const swatch = e.target.closest('.color-swatch');
+                if (swatch && swatch.dataset.color) {
+                    currentColor = swatch.dataset.color;
+                    colorPalette.querySelector('.active')?.classList.remove('active');
+                    swatch.classList.add('active');
+                    colorPickerLabel.style.backgroundImage = 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)';
+                }
+            });
+
+            colorPicker.addEventListener('input', (e) => {
+                currentColor = e.target.value;
+                colorPalette.querySelector('.active')?.classList.remove('active');
+                colorPickerLabel.classList.add('active');
+                colorPickerLabel.style.backgroundImage = 'none';
+                colorPickerLabel.style.backgroundColor = currentColor;
+            });
+            
+            undoBtn.addEventListener('click', undo);
+            redoBtn.addEventListener('click', redo);
+
+            clearBtn.addEventListener('click', () => {
+                gridState = Array(GRID_COUNT).fill(null).map(() => Array(GRID_COUNT).fill(null));
+                redrawAll();
+                saveState();
+            });
+
+            imageTool.addEventListener('click', () => {
+                // 如果已經在預覽模式，不重複觸發
+                if (!isPreviewMode) {
+                    imageUpload.click();
+                }
+            });
+            
+            imageUpload.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    previewImage.onload = () => {
+                        // 初始化預覽圖片的縮放和位置
+                        previewTransform = { scale: 1, offsetX: 0, offsetY: 0 };
+                        // 讓圖片在預覽框內盡可能大但又不超出
+                        const wrapperRect = imagePreviewWrapper.getBoundingClientRect();
+                        const imgRatio = previewImage.width / previewImage.height;
+                        const wrapperRatio = wrapperRect.width / wrapperRect.height;
+
+                        if (imgRatio > wrapperRatio) { // 圖片較寬
+                            previewTransform.scale = wrapperRect.width / previewImage.width;
+                        } else { // 圖片較高或正方形
+                            previewTransform.scale = wrapperRect.height / previewImage.height;
+                        }
+                        // 確保圖片至少與一個維度邊界對齊
+                        if (previewTransform.scale * previewImage.width < wrapperRect.width && previewTransform.scale * previewImage.height < wrapperRect.height) {
+                             previewTransform.scale = Math.max(wrapperRect.width / previewImage.width, wrapperRect.height / previewImage.height);
+                        }
+
+
+                        updatePreviewImageTransform();
+                        imagePreviewContainer.classList.add('active');
+                        isPreviewMode = true;
+                    };
+                    previewImage.src = event.target.result;
+                }
+                reader.readAsDataURL(file);
+                e.target.value = ''; // 清空檔案輸入，以便再次上傳同一個檔案
+            });
+            
+            // --- 圖片預覽模式相關函式 ---
+            function updatePreviewImageTransform() {
+                imagePreview.style.transform = `translate(${previewTransform.offsetX}px, ${previewTransform.offsetY}px) scale(${previewTransform.scale})`;
+                imagePreview.style.width = `${previewImage.width}px`;
+                imagePreview.style.height = `${previewImage.height}px`;
+                imagePreview.style.left = `${(imagePreviewWrapper.clientWidth - previewImage.width * previewTransform.scale) / 2}px`;
+                imagePreview.style.top = `${(imagePreviewWrapper.clientHeight - previewImage.height * previewTransform.scale) / 2}px`;
+            }
+
+            function getPreviewCoords(e) {
+                const rect = imagePreviewWrapper.getBoundingClientRect();
+                const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+                const clientY = e.clientY ?? e.touches?.[0]?.clientY;
+                return { x: clientX - rect.left, y: clientY - rect.top };
+            }
+
+            imagePreviewWrapper.addEventListener('mousedown', (e) => {
+                if (!isPreviewMode) return;
+                isPreviewPanning = true;
+                lastPreviewPanPos = getPreviewCoords(e);
+                imagePreviewWrapper.classList.add('panning');
+                e.preventDefault();
+            });
+            imagePreviewWrapper.addEventListener('mousemove', (e) => {
+                if (!isPreviewPanning || !isPreviewMode) return;
+                e.preventDefault();
+                const pos = getPreviewCoords(e);
+                previewTransform.offsetX += (pos.x - lastPreviewPanPos.x);
+                previewTransform.offsetY += (pos.y - lastPreviewPanPos.y);
+                lastPreviewPanPos = pos;
+                updatePreviewImageTransform();
+            });
+            imagePreviewWrapper.addEventListener('mouseup', () => {
+                isPreviewPanning = false;
+                imagePreviewWrapper.classList.remove('panning');
+            });
+            imagePreviewWrapper.addEventListener('mouseleave', () => {
+                isPreviewPanning = false;
+                imagePreviewWrapper.classList.remove('panning');
+            });
+
+            imagePreviewWrapper.addEventListener('wheel', (e) => {
+                if (!isPreviewMode) return;
+                e.preventDefault();
+                const pos = getPreviewCoords(e);
+                const zoomFactor = 1.1;
+                const delta = e.deltaY > 0 ? 1 / zoomFactor : zoomFactor; // deltaY > 0 往下滾動為縮小
+
+                const oldScale = previewTransform.scale;
+                previewTransform.scale = Math.max(0.1, Math.min(previewTransform.scale * delta, 10)); // 限制預覽縮放範圍
+
+                // 調整偏移量以保持縮放中心
+                previewTransform.offsetX = pos.x - (pos.x - previewTransform.offsetX) * (previewTransform.scale / oldScale);
+                previewTransform.offsetY = pos.y - (pos.y - previewTransform.offsetY) * (previewTransform.scale / oldScale);
+                
+                updatePreviewImageTransform();
+            }, { passive: false });
+
+            // 觸控事件 (雙指縮放和平移)
+            let initialPinchDistance = null;
+            let initialMidpoint = null;
+
+            imagePreviewWrapper.addEventListener('touchstart', (e) => {
+                if (!isPreviewMode) return;
+                if (e.touches.length === 1) {
+                    isPreviewPanning = true;
+                    lastPreviewPanPos = getPreviewCoords(e);
+                    imagePreviewWrapper.classList.add('panning');
+                } else if (e.touches.length === 2) {
+                    isPreviewPanning = false; // 禁用單指平移
+                    const touch1 = e.touches[0];
+                    const touch2 = e.touches[1];
+                    initialPinchDistance = Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
+                    initialMidpoint = {
+                        x: (touch1.clientX + touch2.clientX) / 2,
+                        y: (touch1.clientY + touch2.clientY) / 2
+                    };
+                }
+                e.preventDefault();
+            }, { passive: false });
+
+            imagePreviewWrapper.addEventListener('touchmove', (e) => {
+                if (!isPreviewMode) return;
+                e.preventDefault();
+
+                if (e.touches.length === 1 && isPreviewPanning) { // 單指平移
+                    const pos = getPreviewCoords(e);
+                    previewTransform.offsetX += (pos.x - lastPreviewPanPos.x);
+                    previewTransform.offsetY += (pos.y - lastPreviewPanPos.y);
+                    lastPreviewPanPos = pos;
+                    updatePreviewImageTransform();
+                } else if (e.touches.length === 2 && initialPinchDistance !== null) { // 雙指縮放和平移
+                    const touch1 = e.touches[0];
+                    const touch2 = e.touches[1];
+                    const currentPinchDistance = Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
+                    const currentMidpoint = {
+                        x: (touch1.clientX + touch2.clientX) / 2,
+                        y: (touch1.clientY + touch2.clientY) / 2
+                    };
+
+                    // 縮放
+                    const oldScale = previewTransform.scale;
+                    const scaleFactor = currentPinchDistance / initialPinchDistance;
+                    previewTransform.scale = Math.max(0.1, Math.min(oldScale * scaleFactor, 10));
+
+                    // 平移 (基於中點移動)
+                    const wrapperRect = imagePreviewWrapper.getBoundingClientRect();
+                    const midpointRelativeToWrapper = {
+                        x: currentMidpoint.x - wrapperRect.left,
+                        y: currentMidpoint.y - wrapperRect.top
+                    };
+
+                    previewTransform.offsetX = midpointRelativeToWrapper.x - (initialMidpoint.x - wrapperRect.left - previewTransform.offsetX) * (previewTransform.scale / oldScale);
+                    previewTransform.offsetY = midpointRelativeToWrapper.y - (initialMidpoint.y - wrapperRect.top - previewTransform.offsetY) * (previewTransform.scale / oldScale);
+
+                    initialPinchDistance = currentPinchDistance; // 更新為新的距離
+                    initialMidpoint = currentMidpoint; // 更新中點
+
+                    updatePreviewImageTransform();
+                }
+            }, { passive: false });
+
+            imagePreviewWrapper.addEventListener('touchend', (e) => {
+                if (!isPreviewMode) return;
+                if (e.touches.length < 2) { // 當只有一根手指離開時，可能還是有另一根在
+                    isPreviewPanning = false;
+                    imagePreviewWrapper.classList.remove('panning');
+                }
+                if (e.touches.length === 0) { // 所有手指都離開
+                    initialPinchDistance = null;
+                    initialMidpoint = null;
+                }
+            });
+            imagePreviewWrapper.addEventListener('touchcancel', (e) => {
+                isPreviewPanning = false;
+                imagePreviewWrapper.classList.remove('panning');
+                initialPinchDistance = null;
+                initialMidpoint = null;
+            });
+
+
+            cancelUploadBtn.addEventListener('click', () => {
+                imagePreviewContainer.classList.remove('active');
+                isPreviewMode = false;
+                previewImage.src = ''; // 清空圖片源
+            });
+
+            confirmPixelateBtn.addEventListener('click', () => {
+                pixelateImage(previewImage, previewTransform);
+                imagePreviewContainer.classList.remove('active');
+                isPreviewMode = false;
+                previewImage.src = ''; // 清空圖片源
+                saveState(); // 像素化完成後儲存狀態
+            });
+            
+            // --- 演算法函式 (Flood Fill & Pixelate) ---
+            function floodFill(startRow, startCol, targetColor, replacementColor) {
+                 if (startRow < 0 || startRow >= GRID_COUNT || startCol < 0 || startCol >= GRID_COUNT) return;
+                const cellColor = gridState[startRow][startCol] || null;
+                if (cellColor !== targetColor) return;
+                
+                const queue = [[startRow, startCol]];
+                gridState[startRow][startCol] = replacementColor;
+
+                while (queue.length > 0) {
+                    const [row, col] = queue.shift();
+                    [[row + 1, col], [row - 1, col], [row, col + 1], [row, col - 1]].forEach(([nRow, nCol]) => {
+                        if (nRow >= 0 && nRow < GRID_COUNT && nCol >= 0 && nCol < GRID_COUNT && (gridState[nRow][nCol] || null) === targetColor) {
+                            gridState[nRow][nCol] = replacementColor;
+                            queue.push([nRow, nCol]);
+                        }
+                    });
+                }
+            }
+
+            function pixelateImage(img, transform) {
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCanvas.width = GRID_COUNT;
+                tempCanvas.height = GRID_COUNT;
+
+                tempCtx.imageSmoothingEnabled = false; // 關鍵！禁用平滑，保留像素感
+                
+                // 計算圖片在目標 canvas 上的繪製位置和大小
+                const imgWidth = img.width * transform.scale;
+                const imgHeight = img.height * transform.scale;
+
+                // 預覽框中心點相對於預覽圖片原始大小的位置
+                const wrapperRect = imagePreviewWrapper.getBoundingClientRect();
+                const centerOffset = {
+                    x: (wrapperRect.width / 2) - transform.offsetX,
+                    y: (wrapperRect.height / 2) - transform.offsetY
+                };
+                
+                // 圖片在預覽框內原始起點
+                const imgOriginalX = (wrapperRect.width - img.width * transform.scale) / 2 + transform.offsetX;
+                const imgOriginalY = (wrapperRect.height - img.height * transform.scale) / 2 + transform.offsetY;
+
+                // 繪製到臨時 canvas (20x20)
+                // 這裡我們需要根據預覽模式下的縮放和位置，將圖片的正確部分繪製到 20x20 的網格中
+                
+                // 來源裁剪框在圖片中的位置和大小
+                const sourceX = (0 - imgOriginalX) / transform.scale;
+                const sourceY = (0 - imgOriginalY) / transform.scale;
+                const sourceWidth = wrapperRect.width / transform.scale;
+                const sourceHeight = wrapperRect.height / transform.scale;
+
+                // 確保來源裁剪框不超出圖片實際範圍
+                const sx = Math.max(0, sourceX);
+                const sy = Math.max(0, sourceY);
+                const sWidth = Math.min(img.width - sx, sourceWidth - Math.max(0, -sourceX));
+                const sHeight = Math.min(img.height - sy, sourceHeight - Math.max(0, -sourceY));
+
+                // 目的繪製框在 20x20 臨時 canvas 中的位置和大小
+                const dx = Math.max(0, (0 - sourceX) * (GRID_COUNT / sourceWidth));
+                const dy = Math.max(0, (0 - sourceY) * (GRID_COUNT / sourceHeight));
+                const dWidth = (sWidth / sourceWidth) * GRID_COUNT;
+                const dHeight = (sHeight / sourceHeight) * GRID_COUNT;
+
+                // 清空 gridState
+                gridState = Array(GRID_COUNT).fill(null).map(() => Array(GRID_COUNT).fill(null));
+
+                if (sWidth > 0 && sHeight > 0) { // 確保有圖片區域可以繪製
+                    tempCtx.drawImage(img,
+                                      sx, sy, sWidth, sHeight,
+                                      dx, dy, dWidth, dHeight);
+                }
+
+
+                const imageData = tempCtx.getImageData(0, 0, GRID_COUNT, GRID_COUNT).data;
+                const rgbToHex = (r,g,b) => '#' + [r,g,b].map(x=>{const hex=x.toString(16);return hex.length===1?'0'+hex:hex}).join('');
+
+                for (let r=0;r<GRID_COUNT;r++) {
+                    for(let c=0;c<GRID_COUNT;c++) {
+                        const i = (r*GRID_COUNT+c)*4;
+                        // 檢查像素是否完全透明，如果是則填入 null
+                        if (imageData[i+3] === 0) {
+                            gridState[r][c] = null;
+                        } else {
+                            gridState[r][c] = rgbToHex(imageData[i],imageData[i+1],imageData[i+2]);
+                        }
+                    }
+                }
+                redrawAll();
+            }
+
+            // --- 綁定事件監聽器 ---
+            canvas.addEventListener('mousedown', startAction);
+            canvas.addEventListener('mousemove', (e) => { handleDraw(e); handlePan(e); });
+            canvas.addEventListener('mouseup', stopAction);
+            canvas.addEventListener('mouseleave', stopAction);
+            canvas.addEventListener('touchstart', startAction, { passive: false });
+            canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handleDraw(e); handlePan(e); }, { passive: false });
+            canvas.addEventListener('touchend', stopAction);
+            canvas.addEventListener('touchcancel', stopAction);
+            canvas.addEventListener('wheel', handleZoom, { passive: false });
+
+            window.addEventListener('resize', resizeAndSetupCanvas);
+
+            // --- 首次載入 ---
+            resizeAndSetupCanvas();
+            saveState();
+            updateCursor();
+
+            // 初始隱藏預覽容器
+            imagePreviewContainer.classList.remove('active');
+        });
+    </script>
+</body>
+</html>
+
