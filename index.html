@@ -252,7 +252,7 @@
     <!-- 畫布 --><canvas id="drawing-canvas"></canvas>
     <!-- 隱藏的檔案上傳輸入框 --><input type="file" id="image-upload" accept="image/*" class="hidden">
 
-    <!-- 圖片預覽與編輯浮動容器 --><div id="image-preview-container" class="active"> <!-- active for testing, remove for prod --><div id="image-preview-wrapper">
+    <!-- 圖片預覽與編輯浮動容器 --><div id="image-preview-container"> <!-- active for testing, remove for prod --><div id="image-preview-wrapper">
             <img id="image-preview" src="" alt="預覽圖片">
         </div>
         <div class="preview-controls">
@@ -557,27 +557,29 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     previewImage.onload = () => {
-                        // 初始化預覽圖片的縮放和位置
-                        previewTransform = { scale: 1, offsetX: 0, offsetY: 0 };
-                        // 讓圖片在預覽框內盡可能大但又不超出
-                        const wrapperRect = imagePreviewWrapper.getBoundingClientRect();
-                        const imgRatio = previewImage.width / previewImage.height;
-                        const wrapperRatio = wrapperRect.width / wrapperRect.height;
-
-                        if (imgRatio > wrapperRatio) { // 圖片較寬
-                            previewTransform.scale = wrapperRect.width / previewImage.width;
-                        } else { // 圖片較高或正方形
-                            previewTransform.scale = wrapperRect.height / previewImage.height;
-                        }
-                        // 確保圖片至少與一個維度邊界對齊
-                        if (previewTransform.scale * previewImage.width < wrapperRect.width && previewTransform.scale * previewImage.height < wrapperRect.height) {
-                             previewTransform.scale = Math.max(wrapperRect.width / previewImage.width, wrapperRect.height / previewImage.height);
-                        }
-
-
-                        updatePreviewImageTransform();
+                        // 修正的邏輯順序
+                        // 1. 先讓預覽容器可見，這樣才能正確取得其尺寸
                         imagePreviewContainer.classList.add('active');
                         isPreviewMode = true;
+
+                        // 2. 設定預覽圖片的來源
+                        imagePreview.src = previewImage.src;
+
+                        // 3. 初始化預覽圖片的縮放和位置
+                        previewTransform = { scale: 1, offsetX: 0, offsetY: 0 };
+                        
+                        // 4. FIX: 使用 clientWidth/clientHeight 進行一致的尺寸計算，並簡化邏輯
+                        const wrapperW = imagePreviewWrapper.clientWidth;
+                        const wrapperH = imagePreviewWrapper.clientHeight;
+
+                        const scaleX = wrapperW / previewImage.width;
+                        const scaleY = wrapperH / previewImage.height;
+                        
+                        // 使用 Math.min 來確保圖片能完整容納 (contain)
+                        previewTransform.scale = Math.min(scaleX, scaleY);
+
+                        // 5. 套用計算好的變換
+                        updatePreviewImageTransform();
                     };
                     previewImage.src = event.target.result;
                 }
@@ -587,11 +589,27 @@
             
             // --- 圖片預覽模式相關函式 ---
             function updatePreviewImageTransform() {
-                imagePreview.style.transform = `translate(${previewTransform.offsetX}px, ${previewTransform.offsetY}px) scale(${previewTransform.scale})`;
+                const wrapperW = imagePreviewWrapper.clientWidth;
+                const wrapperH = imagePreviewWrapper.clientHeight;
+                
+                // 計算置中所需的偏移量
+                const centerX = (wrapperW - previewImage.width * previewTransform.scale) / 2;
+                const centerY = (wrapperH - previewImage.height * previewTransform.scale) / 2;
+
+                // 將置中偏移量與使用者平移的偏移量相加
+                const totalOffsetX = centerX + previewTransform.offsetX;
+                const totalOffsetY = centerY + previewTransform.offsetY;
+                
+                // 統一使用 transform 進行定位與縮放
+                imagePreview.style.transform = `translate(${totalOffsetX}px, ${totalOffsetY}px) scale(${previewTransform.scale})`;
+                
+                // 這裡設定的 width/height 是圖片原始大小，由 scale 控制顯示大小
                 imagePreview.style.width = `${previewImage.width}px`;
                 imagePreview.style.height = `${previewImage.height}px`;
-                imagePreview.style.left = `${(imagePreviewWrapper.clientWidth - previewImage.width * previewTransform.scale) / 2}px`;
-                imagePreview.style.top = `${(imagePreviewWrapper.clientHeight - previewImage.height * previewTransform.scale) / 2}px`;
+                
+                // 將 left/top 重設為 0，避免干擾
+                imagePreview.style.left = `0px`; 
+                imagePreview.style.top = `0px`;
             }
 
             function getPreviewCoords(e) {
@@ -762,7 +780,7 @@
 
             function pixelateImage(img, transform) {
                 const tempCanvas = document.createElement('canvas');
-                const tempCtx = tempCanvas.getContext('2d');
+                const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
                 tempCanvas.width = GRID_COUNT;
                 tempCanvas.height = GRID_COUNT;
 
@@ -808,6 +826,8 @@
                 gridState = Array(GRID_COUNT).fill(null).map(() => Array(GRID_COUNT).fill(null));
 
                 if (sWidth > 0 && sHeight > 0) { // 確保有圖片區域可以繪製
+                    // *** FIX: 在繪製前，先將臨時畫布清除為完全透明 ***
+                    tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height); 
                     tempCtx.drawImage(img,
                                       sx, sy, sWidth, sHeight,
                                       dx, dy, dWidth, dHeight);
@@ -821,7 +841,8 @@
                     for(let c=0;c<GRID_COUNT;c++) {
                         const i = (r*GRID_COUNT+c)*4;
                         // 檢查像素是否完全透明，如果是則填入 null
-                        if (imageData[i+3] === 0) {
+                        // FIX: 將檢查條件從 === 0 改為 < 10，以處理半透明邊緣
+                        if (imageData[i+3] < 10) {
                             gridState[r][c] = null;
                         } else {
                             gridState[r][c] = rgbToHex(imageData[i],imageData[i+1],imageData[i+2]);
@@ -855,4 +876,9 @@
     </script>
 </body>
 </html>
+
+
+
+
+
 
