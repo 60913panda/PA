@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>互動式方格圖畫紙</title>
+    <title>像素畫圖畫紙</title>
     <!-- 引入 Tailwind CSS 以快速進行樣式設計 --><script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* --- 整體頁面樣式 --- */
@@ -157,6 +157,19 @@
             image-rendering: -webkit-optimize-contrast;
             image-rendering: optimize-contrast;
             -ms-interpolation-mode: nearest-neighbor;
+            transform-origin: top left; /* 修正：將變形的原點設定為左上角 */
+        }
+
+        #coords-display {
+            color: white;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 0.5rem 1rem;
+            border-radius: 9999px; /* 膠囊形狀 */
+            font-size: 0.875rem; /* 14px */
+            margin-top: 1rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            user-select: none;
+            pointer-events: none; /* 避免干擾滑鼠事件 */
         }
 
         .preview-controls {
@@ -234,6 +247,9 @@
              <button id="image-tool" class="tool-btn" title="圖片轉像素">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
             </button>
+            <button id="export-btn" class="tool-btn" title="匯出圖片">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
             <button id="clear-btn" class="tool-btn" title="清除全部">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
             </button>
@@ -255,6 +271,7 @@
     <!-- 圖片預覽與編輯浮動容器 --><div id="image-preview-container"> <!-- active for testing, remove for prod --><div id="image-preview-wrapper">
             <img id="image-preview" src="" alt="預覽圖片">
         </div>
+        <div id="coords-display"></div>
         <div class="preview-controls">
             <button id="cancel-upload-btn">取消</button>
             <button id="confirm-pixelate-btn">完成，轉換成像素</button>
@@ -273,6 +290,7 @@
             const bucketTool = document.getElementById('bucket-tool');
             const moveTool = document.getElementById('move-tool');
             const clearBtn = document.getElementById('clear-btn');
+            const exportBtn = document.getElementById('export-btn');
             const imageTool = document.getElementById('image-tool');
             const imageUpload = document.getElementById('image-upload');
             const colorPicker = document.getElementById('color-picker');
@@ -285,6 +303,7 @@
             const imagePreview = document.getElementById('image-preview');
             const cancelUploadBtn = document.getElementById('cancel-upload-btn');
             const confirmPixelateBtn = document.getElementById('confirm-pixelate-btn');
+            const coordsDisplay = document.getElementById('coords-display');
 
             const GRID_COUNT = 20;
             let gridState = Array(GRID_COUNT).fill(null).map(() => Array(GRID_COUNT).fill(null));
@@ -543,6 +562,8 @@
                 saveState();
             });
 
+            exportBtn.addEventListener('click', exportPixelArt);
+
             imageTool.addEventListener('click', () => {
                 // 如果已經在預覽模式，不重複觸發
                 if (!isPreviewMode) {
@@ -601,15 +622,22 @@
                 const totalOffsetY = centerY + previewTransform.offsetY;
                 
                 // 統一使用 transform 進行定位與縮放
+                // FIX: 移除 width 和 height 的直接設定，讓圖片自然縮放
                 imagePreview.style.transform = `translate(${totalOffsetX}px, ${totalOffsetY}px) scale(${previewTransform.scale})`;
                 
-                // 這裡設定的 width/height 是圖片原始大小，由 scale 控制顯示大小
-                imagePreview.style.width = `${previewImage.width}px`;
-                imagePreview.style.height = `${previewImage.height}px`;
+                // 移除對 width/height 的設定，避免拉伸
+                imagePreview.style.width = ``;
+                imagePreview.style.height = ``;
                 
                 // 將 left/top 重設為 0，避免干擾
                 imagePreview.style.left = `0px`; 
                 imagePreview.style.top = `0px`;
+
+                // 更新座標顯示
+                const x = Math.round(previewTransform.offsetX);
+                const y = Math.round(previewTransform.offsetY);
+                const zoom = Math.round(previewTransform.scale * 100);
+                coordsDisplay.textContent = `X: ${x} / Y: ${y} / 縮放: ${zoom}%`;
             }
 
             function getPreviewCoords(e) {
@@ -778,6 +806,35 @@
                 }
             }
 
+            function exportPixelArt() {
+                const EXPORT_SIZE = 500; // 匯出的圖片尺寸 (500x500 像素)
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = EXPORT_SIZE;
+                tempCanvas.height = EXPORT_SIZE;
+                const tempCtx = tempCanvas.getContext('2d');
+
+                // 確保匯出的圖片像素分明，不會模糊
+                tempCtx.imageSmoothingEnabled = false;
+
+                const cellSize = EXPORT_SIZE / GRID_COUNT;
+
+                // 遍歷目前的畫布狀態，並將其繪製到暫存畫布上
+                for (let row = 0; row < GRID_COUNT; row++) {
+                    for (let col = 0; col < GRID_COUNT; col++) {
+                        if (gridState[row][col]) {
+                            tempCtx.fillStyle = gridState[row][col];
+                            tempCtx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+                        }
+                    }
+                }
+
+                // 建立一個隱藏的連結來觸發下載
+                const link = document.createElement('a');
+                link.download = 'pixel-art.png'; // 設定下載的檔名
+                link.href = tempCanvas.toDataURL('image/png'); // 將畫布內容轉換為圖片資料
+                link.click(); // 模擬點擊以下載圖片
+            }
+
             function pixelateImage(img, transform) {
                 const tempCanvas = document.createElement('canvas');
                 const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
@@ -786,52 +843,31 @@
 
                 tempCtx.imageSmoothingEnabled = false; // 關鍵！禁用平滑，保留像素感
                 
-                // 計算圖片在目標 canvas 上的繪製位置和大小
-                const imgWidth = img.width * transform.scale;
-                const imgHeight = img.height * transform.scale;
-
-                // 預覽框中心點相對於預覽圖片原始大小的位置
-                const wrapperRect = imagePreviewWrapper.getBoundingClientRect();
-                const centerOffset = {
-                    x: (wrapperRect.width / 2) - transform.offsetX,
-                    y: (wrapperRect.height / 2) - transform.offsetY
-                };
+                const wrapperW = imagePreviewWrapper.clientWidth;
+                const wrapperH = imagePreviewWrapper.clientHeight;
                 
-                // 圖片在預覽框內原始起點
-                const imgOriginalX = (wrapperRect.width - img.width * transform.scale) / 2 + transform.offsetX;
-                const imgOriginalY = (wrapperRect.height - img.height * transform.scale) / 2 + transform.offsetY;
+                // 計算圖片在預覽框內顯示時的左上角座標
+                const imgDisplayX = (wrapperW - img.width * transform.scale) / 2 + transform.offsetX;
+                const imgDisplayY = (wrapperH - img.height * transform.scale) / 2 + transform.offsetY;
 
-                // 繪製到臨時 canvas (20x20)
-                // 這裡我們需要根據預覽模式下的縮放和位置，將圖片的正確部分繪製到 20x20 的網格中
+                // 計算來源圖片中，對應預覽框可見區域的裁剪框 (cropping box)
+                // sx, sy: 裁剪框左上角在「原始圖片」上的座標
+                const sx = -imgDisplayX / transform.scale;
+                const sy = -imgDisplayY / transform.scale;
                 
-                // 來源裁剪框在圖片中的位置和大小
-                const sourceX = (0 - imgOriginalX) / transform.scale;
-                const sourceY = (0 - imgOriginalY) / transform.scale;
-                const sourceWidth = wrapperRect.width / transform.scale;
-                const sourceHeight = wrapperRect.height / transform.scale;
+                // sWidth, sHeight: 裁剪框在「原始圖片」上的寬高
+                const sWidth = wrapperW / transform.scale;
+                const sHeight = wrapperH / transform.scale;
 
-                // 確保來源裁剪框不超出圖片實際範圍
-                const sx = Math.max(0, sourceX);
-                const sy = Math.max(0, sourceY);
-                const sWidth = Math.min(img.width - sx, sourceWidth - Math.max(0, -sourceX));
-                const sHeight = Math.min(img.height - sy, sourceHeight - Math.max(0, -sourceY));
-
-                // 目的繪製框在 20x20 臨時 canvas 中的位置和大小
-                const dx = Math.max(0, (0 - sourceX) * (GRID_COUNT / sourceWidth));
-                const dy = Math.max(0, (0 - sourceY) * (GRID_COUNT / sourceHeight));
-                const dWidth = (sWidth / sourceWidth) * GRID_COUNT;
-                const dHeight = (sHeight / sourceHeight) * GRID_COUNT;
-
-                // 清空 gridState
+                // 清空 gridState 和臨時畫布
                 gridState = Array(GRID_COUNT).fill(null).map(() => Array(GRID_COUNT).fill(null));
+                tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height); 
 
-                if (sWidth > 0 && sHeight > 0) { // 確保有圖片區域可以繪製
-                    // *** FIX: 在繪製前，先將臨時畫布清除為完全透明 ***
-                    tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height); 
-                    tempCtx.drawImage(img,
-                                      sx, sy, sWidth, sHeight,
-                                      dx, dy, dWidth, dHeight);
-                }
+                // 將計算出的裁剪區域，直接繪製到整個 20x20 的臨時畫布上
+                // drawImage 函式會自動處理 sx/sy 為負值或超出圖片邊界的情況
+                tempCtx.drawImage(img,
+                                  sx, sy, sWidth, sHeight,
+                                  0, 0, GRID_COUNT, GRID_COUNT);
 
 
                 const imageData = tempCtx.getImageData(0, 0, GRID_COUNT, GRID_COUNT).data;
@@ -841,7 +877,6 @@
                     for(let c=0;c<GRID_COUNT;c++) {
                         const i = (r*GRID_COUNT+c)*4;
                         // 檢查像素是否完全透明，如果是則填入 null
-                        // FIX: 將檢查條件從 === 0 改為 < 10，以處理半透明邊緣
                         if (imageData[i+3] < 10) {
                             gridState[r][c] = null;
                         } else {
@@ -876,6 +911,11 @@
     </script>
 </body>
 </html>
+
+
+
+
+
 
 
 
